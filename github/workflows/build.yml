@@ -1,0 +1,151 @@
+name: Build Plan B
+on:
+  push:
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.7
+      - name: Create project
+        run: |
+          mkdir -p app/src/main/java/com/planb/app
+          cat > settings.gradle.kts << 'EOF'
+          pluginManagement {
+              repositories { google(); mavenCentral(); gradlePluginPortal() }
+          }
+          dependencyResolutionManagement {
+              repositories { google(); mavenCentral() }
+          }
+          rootProject.name = "PlanB"
+          include(":app")
+          EOF
+          cat > build.gradle.kts << 'EOF'
+          plugins {
+              id("com.android.application") version "8.5.2" apply false
+              id("org.jetbrains.kotlin.android") version "1.9.24" apply false
+          }
+          EOF
+          cat > app/build.gradle.kts << 'EOF'
+          plugins {
+              id("com.android.application")
+              id("org.jetbrains.kotlin.android")
+          }
+          android {
+              namespace = "com.planb.app"
+              compileSdk = 34
+              defaultConfig {
+                  applicationId = "com.planb.app"
+                  minSdk = 26
+                  targetSdk = 34
+                  versionCode = 1
+                  versionName = "0.1"
+              }
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+              kotlinOptions { jvmTarget = "17" }
+          }
+          EOF
+          cat > app/src/main/AndroidManifest.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <application
+                  android:label="Plan B"
+                  android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+                  <activity android:name=".MainActivity" android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+          cat > app/src/main/java/com/planb/app/MainActivity.kt << 'EOF'
+          package com.planb.app
+
+          import android.app.Activity
+          import android.app.ActivityManager
+          import android.graphics.Color
+          import android.graphics.Typeface
+          import android.os.BatteryManager
+          import android.os.Build
+          import android.os.Bundle
+          import android.os.Environment
+          import android.os.StatFs
+          import android.view.View
+          import android.widget.Button
+          import android.widget.LinearLayout
+          import android.widget.ScrollView
+          import android.widget.TextView
+
+          class MainActivity : Activity() {
+              private fun mb(b: Long) = (b / 1048576L).toString() + " MB"
+
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  val root = LinearLayout(this)
+                  root.orientation = LinearLayout.VERTICAL
+                  root.setPadding(48, 96, 48, 48)
+                  root.setBackgroundColor(Color.parseColor("#0D1117"))
+                  root.layoutDirection = View.LAYOUT_DIRECTION_RTL
+
+                  val title = TextView(this)
+                  title.text = "Plan B"
+                  title.textSize = 38f
+                  title.typeface = Typeface.DEFAULT_BOLD
+                  title.setTextColor(Color.parseColor("#58A6FF"))
+                  root.addView(title)
+
+                  val out = TextView(this)
+                  out.textSize = 16f
+                  out.setTextColor(Color.parseColor("#C9D1D9"))
+                  out.setPadding(0, 32, 0, 32)
+                  out.text = "اضغط «فحص» لعرض حالة الجهاز."
+
+                  val btn = Button(this)
+                  btn.text = "فحص"
+                  btn.setOnClickListener { out.text = scan() }
+                  root.addView(btn)
+
+                  val sv = ScrollView(this)
+                  sv.addView(out)
+                  root.addView(sv)
+                  setContentView(root)
+              }
+
+              private fun scan(): String {
+                  val am = getSystemService(ACTIVITY_SERVICE) as ActivityManager
+                  val mi = ActivityManager.MemoryInfo()
+                  am.getMemoryInfo(mi)
+                  val st = StatFs(Environment.getDataDirectory().path)
+                  val bm = getSystemService(BATTERY_SERVICE) as BatteryManager
+                  val bat = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
+                  val sb = StringBuilder()
+                  sb.append("الجهاز: ").append(Build.MANUFACTURER).append(" ").append(Build.MODEL).append("\n")
+                  sb.append("Android: ").append(Build.VERSION.RELEASE).append(" (API ").append(Build.VERSION.SDK_INT).append(")\n\n")
+                  sb.append("الرام الكلية: ").append(mb(mi.totalMem)).append("\n")
+                  sb.append("الرام المتاحة: ").append(mb(mi.availMem)).append("\n")
+                  sb.append("ذاكرة منخفضة: ").append(if (mi.lowMemory) "نعم ⚠️" else "لا ✅").append("\n\n")
+                  sb.append("التخزين الكلي: ").append(mb(st.totalBytes)).append("\n")
+                  sb.append("التخزين المتاح: ").append(mb(st.availableBytes)).append("\n\n")
+                  sb.append("البطارية: ").append(bat).append("%\n")
+                  return sb.toString()
+              }
+          }
+          EOF
+      - name: Build
+        run: gradle assembleDebug --no-daemon
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PlanB-debug
+          path: app/build/outputs/apk/debug/app-debug.apk
